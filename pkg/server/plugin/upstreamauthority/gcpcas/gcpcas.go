@@ -251,8 +251,6 @@ func (p *Plugin) mintX509CA(ctx context.Context, csr []byte, preferredTTL int32)
 	san.Uris = uris
 
 	isCa := true
-	// this is 0, golint complains if it's explicitly set to 0 since it's the default value of an int32
-	var maxIssuerPathLength int32
 
 	// privatecapb.CertificateAuthority.Name is the full GCP path but the request below expects only the CA's ID
 	chosenPool, issuingCaID := path.Split(parentPath)
@@ -291,7 +289,6 @@ func (p *Plugin) mintX509CA(ctx context.Context, csr []byte, preferredTTL int32)
 						// https://pkg.go.dev/google.golang.org/genproto/googleapis/cloud/security/privateca/v1#X509Parameters_CaOptions
 						CaOptions: &privatecapb.X509Parameters_CaOptions{
 							IsCa:                &isCa,
-							MaxIssuerPathLength: &maxIssuerPathLength,
 						},
 						// https://pkg.go.dev/google.golang.org/genproto/googleapis/cloud/security/privateca/v1#KeyUsage
 						KeyUsage: &privatecapb.KeyUsage{
