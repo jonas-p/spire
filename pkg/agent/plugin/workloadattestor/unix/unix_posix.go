@@ -17,7 +17,6 @@ import (
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/hcl"
-	"github.com/shirou/gopsutil/v3/process"
 	workloadattestorv1 "github.com/spiffe/spire-plugin-sdk/proto/spire/plugin/agent/workloadattestor/v1"
 	configv1 "github.com/spiffe/spire-plugin-sdk/proto/spire/service/common/config/v1"
 	"github.com/spiffe/spire/pkg/common/catalog"
@@ -34,57 +33,48 @@ func builtin(p *Plugin) catalog.BuiltIn {
 }
 
 type processInfo interface {
-	Uids() ([]int32, error)
-	Gids() ([]int32, error)
+	Uids() ([]uint32, error)
+	Gids() ([]uint32, error)
 	Groups() ([]string, error)
 	Exe() (string, error)
 	NamespacedExe() string
 }
 
 type PSProcessInfo struct {
-	*process.Process
+	Pid int32
+}
+
+func (ps PSProcessInfo) Exe() (string, error) {
+	exe, err := os.Readlink(getProcPath(ps.Pid, "exe"))
+	if err != nil {
+		return "", err
+	}
+	return exe, nil
+}
+
+func (ps PSProcessInfo) Uids() (uids []uint32, err error) {
+	return getUint32ArrayFromProcStatus(ps.Pid, "uid")
+}
+
+func (ps PSProcessInfo) Gids() (gids []uint32, err error) {
+	return getUint32ArrayFromProcStatus(ps.Pid, "gid")
 }
 
 func (ps PSProcessInfo) NamespacedExe() string {
 	return getProcPath(ps.Pid, "exe")
 }
 
-// Groups returns the supplementary group IDs
-// This is a custom implementation that only works for linux until the next issue is fixed
-// https://github.com/shirou/gopsutil/issues/913
 func (ps PSProcessInfo) Groups() ([]string, error) {
 	if runtime.GOOS != "linux" {
 		return []string{}, nil
 	}
 
-	statusPath := getProcPath(ps.Pid, "status")
-
-	f, err := os.Open(statusPath)
+	value, err := getValueFromProcStatus(ps.Pid, "groups")
 	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	scnr := bufio.NewScanner(f)
-	for scnr.Scan() {
-		row := scnr.Text()
-		parts := strings.SplitN(row, ":", 2)
-		if len(parts) != 2 {
-			continue
-		}
-
-		key := strings.ToLower(strings.TrimSpace(parts[0]))
-		if key == "groups" {
-			value := strings.TrimSpace(parts[1])
-			return strings.Fields(value), nil
-		}
+		return []string{}, err
 	}
 
-	if err := scnr.Err(); err != nil {
-		return nil, err
-	}
-
-	return []string{}, nil
+	return strings.Fields(value), nil
 }
 
 type Configuration struct {
@@ -102,7 +92,7 @@ type Plugin struct {
 
 	// hooks for tests
 	hooks struct {
-		newProcess      func(pid int32) (processInfo, error)
+		newProcess      func(pid int32) processInfo
 		lookupUserByID  func(id string) (*user.User, error)
 		lookupGroupByID func(id string) (*user.Group, error)
 	}
@@ -110,7 +100,7 @@ type Plugin struct {
 
 func New() *Plugin {
 	p := &Plugin{}
-	p.hooks.newProcess = func(pid int32) (processInfo, error) { p, err := process.NewProcess(pid); return PSProcessInfo{p}, err }
+	p.hooks.newProcess = func(pid int32) processInfo { return PSProcessInfo{pid} }
 	p.hooks.lookupUserByID = user.LookupId
 	p.hooks.lookupGroupByID = user.LookupGroupId
 	return p
@@ -126,11 +116,7 @@ func (p *Plugin) Attest(ctx context.Context, req *workloadattestorv1.AttestReque
 		return nil, err
 	}
 
-	proc, err := p.hooks.newProcess(req.Pid)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get process: %v", err)
-	}
-
+	proc := p.hooks.newProcess(req.Pid)
 	var selectorValues []string
 
 	uid, err := p.getUID(proc)
@@ -290,4 +276,49 @@ func getProcPath(pID int32, lastPath string) string {
 		procPath = "/proc"
 	}
 	return filepath.Join(procPath, strconv.FormatInt(int64(pID), 10), lastPath)
+}
+
+func getValueFromProcStatus(pid int32, field string) (string, error) {
+	statusPath := getProcPath(pid, "status")
+	fd, err := os.Open(statusPath)
+	if err != nil {
+		return "", err
+	}
+	defer fd.Close()
+
+	field = strings.ToLower(field)
+
+	scnr := bufio.NewScanner(fd)
+	for scnr.Scan() {
+		row := scnr.Text()
+		parts := strings.SplitN(row, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := strings.ToLower(strings.TrimSpace(parts[0]))
+		if key == field {
+			value := strings.TrimSpace(parts[1])
+			return value, nil
+		}
+	}
+
+	return "", fmt.Errorf("field %s not found in %s", field, statusPath)
+}
+
+func getUint32ArrayFromProcStatus(pid int32, field string) (values []uint32, err error) {
+	value, err := getValueFromProcStatus(pid, field)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, v := range strings.Fields(value) {
+		uid, err := strconv.ParseUint(v, 10, 32)
+		if err != nil {
+			return nil, err
+		}
+		values = append(values, uint32(uid))
+	}
+
+	return values, nil
 }
