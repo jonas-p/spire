@@ -28,6 +28,7 @@ This document is a configuration reference for SPIRE Agent. It includes informat
 | WorkloadAttestor | [docker](/doc/plugin_agent_workloadattestor_docker.md)                  | A workload attestor which allows selectors based on docker constructs such `label` and `image_id`                                                |
 | WorkloadAttestor | [k8s](/doc/plugin_agent_workloadattestor_k8s.md)                        | A workload attestor which allows selectors based on Kubernetes constructs such `ns` (namespace) and `sa` (service account)                       |
 | WorkloadAttestor | [unix](/doc/plugin_agent_workloadattestor_unix.md)                      | A workload attestor which generates unix-based selectors like `uid` and `gid`                                                                    |
+| WorkloadAttestor | [systemd](/doc/plugin_agent_workloadattestor_systemd.md)                | A workload attestor which generates selectors based on systemd unit properties such as `Id` and `FragmentPath`                                   |
 | SVIDStore        | [aws_secretsmanager](/doc/plugin_agent_svidstore_aws_secretsmanager.md) | An SVIDstore which stores secrets in the AWS secrets manager with the resulting X509-SVIDs of the entries that the agent is entitled to.         |
 | SVIDStore        | [gcp_secretmanager](/doc/plugin_agent_svidstore_gcp_secretmanager.md)   | An SVIDStore which stores secrets in the Google Cloud Secret Manager with the resulting X509-SVIDs of the entries that the agent is entitled to. |
 
@@ -83,12 +84,13 @@ Only one of these three options may be set at a time.
 
 ### SDS Configuration
 
-| Configuration                    | Description                                                                                      | Default |
-|----------------------------------|--------------------------------------------------------------------------------------------------|---------|
-| `default_svid_name`              | The TLS Certificate resource name to use for the default X509-SVID with Envoy SDS                | default |
-| `default_bundle_name`            | The Validation Context resource name to use for the default X.509 bundle with Envoy SDS          | ROOTCA  |
-| `default_all_bundles_name`       | The Validation Context resource name to use for all bundles (including federated) with Envoy SDS | ALL     |
-| `disable_spiffe_cert_validation` | Disable Envoy SDS custom validation                                                              | false   |
+| Configuration                    | Description                                                                                                                                                                         | Default |
+|----------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------|
+| `enable_deprecated_v2_api`       | Enable deprecated SDS v2 API. It is recommended that users of the SDS v2 API migrate to the SDS v3 API. The SDS v2 API and this config setting will be removed in a future version. | false   |
+| `default_svid_name`              | The TLS Certificate resource name to use for the default X509-SVID with Envoy SDS                                                                                                   | default |
+| `default_bundle_name`            | The Validation Context resource name to use for the default X.509 bundle with Envoy SDS                                                                                             | ROOTCA  |
+| `default_all_bundles_name`       | The Validation Context resource name to use for all bundles (including federated) with Envoy SDS                                                                                    | ALL     |
+| `disable_spiffe_cert_validation` | Disable Envoy SDS custom validation                                                                                                                                                 | false   |
 
 ### Profiling Names
 

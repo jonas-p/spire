@@ -21,7 +21,6 @@ import (
 	"github.com/spiffe/spire/pkg/agent/plugin/nodeattestor"
 	"github.com/spiffe/spire/pkg/agent/storage"
 	"github.com/spiffe/spire/pkg/agent/svid/store"
-	"github.com/spiffe/spire/pkg/common/bundleutil"
 	"github.com/spiffe/spire/pkg/common/diskutil"
 	"github.com/spiffe/spire/pkg/common/health"
 	"github.com/spiffe/spire/pkg/common/profiling"
@@ -68,7 +67,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	telemetry.EmitVersion(metrics)
+	telemetry.EmitStarted(metrics, a.c.TrustDomain)
 	uptime.ReportMetrics(ctx, metrics)
 
 	cat, err := catalog.Load(ctx, catalog.Config{
@@ -212,14 +211,11 @@ func (a *Agent) attest(ctx context.Context, sto storage.Storage, cat catalog.Cat
 }
 
 func (a *Agent) newManager(ctx context.Context, sto storage.Storage, cat catalog.Catalog, metrics telemetry.Metrics, as *node_attestor.AttestationResult, cache *storecache.Cache, na nodeattestor.NodeAttestor) (manager.Manager, error) {
-	bundle, err := bundleutil.SPIFFEBundleToBundleUtil(as.Bundle)
-	if err != nil {
-		return nil, err
-	}
 	config := &manager.Config{
 		SVID:             as.SVID,
 		SVIDKey:          as.Key,
-		Bundle:           bundle,
+		Bundle:           as.Bundle,
+		Reattestable:     as.Reattestable,
 		Catalog:          cat,
 		TrustDomain:      a.c.TrustDomain,
 		ServerAddr:       a.c.ServerAddress,
@@ -273,6 +269,7 @@ func (a *Agent) newEndpoints(metrics telemetry.Metrics, mgr manager.Manager, att
 		DefaultBundleName:             a.c.DefaultBundleName,
 		DefaultAllBundlesName:         a.c.DefaultAllBundlesName,
 		DisableSPIFFECertValidation:   a.c.DisableSPIFFECertValidation,
+		EnableDeprecatedSDSv2API:      a.c.EnableDeprecatedSDSv2API,
 		AllowUnauthenticatedVerifiers: a.c.AllowUnauthenticatedVerifiers,
 		AllowedForeignJWTClaims:       a.c.AllowedForeignJWTClaims,
 		TrustDomain:                   a.c.TrustDomain,

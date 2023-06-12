@@ -14,10 +14,10 @@ import (
 	core_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
 	sds_v2 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v2"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/spiffe/go-spiffe/v2/bundle/spiffebundle"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/spire/pkg/agent/manager/cache"
 	"github.com/spiffe/spire/pkg/common/api/middleware"
-	"github.com/spiffe/spire/pkg/common/bundleutil"
 	"github.com/spiffe/spire/pkg/common/peertracker"
 	"github.com/spiffe/spire/pkg/common/pemutil"
 	"github.com/spiffe/spire/proto/spire/common"
@@ -25,14 +25,15 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 var (
-	tdBundle = bundleutil.BundleFromRootCA(spiffeid.RequireTrustDomainFromString("domain.test"), &x509.Certificate{
+	tdBundle = spiffebundle.FromX509Authorities(spiffeid.RequireTrustDomainFromString("domain.test"), []*x509.Certificate{{
 		Raw: []byte("BUNDLE"),
-	})
+	}})
 	tdValidationContext = &auth_v2.Secret{
 		Name: "spiffe://domain.test",
 		Type: &auth_v2.Secret_ValidationContext{
@@ -59,9 +60,9 @@ var (
 		},
 	}
 
-	fedBundle = bundleutil.BundleFromRootCA(spiffeid.RequireTrustDomainFromString("otherdomain.test"), &x509.Certificate{
+	fedBundle = spiffebundle.FromX509Authorities(spiffeid.RequireTrustDomainFromString("otherdomain.test"), []*x509.Certificate{{
 		Raw: []byte("FEDBUNDLE"),
-	})
+	}})
 	fedValidationContext = &auth_v2.Secret{
 		Name: "spiffe://otherdomain.test",
 		Type: &auth_v2.Secret_ValidationContext{
@@ -161,6 +162,7 @@ func (s *HandlerSuite) SetupTest() {
 		Manager:           s.manager,
 		DefaultSVIDName:   "default",
 		DefaultBundleName: "ROOTCA",
+		Enabled:           true,
 	})
 
 	s.received = make(chan struct{})
@@ -202,6 +204,27 @@ func (s *HandlerSuite) TestStreamSecretsStreamAllSecrets() {
 	resp, err := stream.Recv()
 	s.Require().NoError(err)
 	s.requireSecrets(resp, tdValidationContext, fedValidationContext, workloadTLSCertificate1)
+}
+
+func (s *HandlerSuite) TestAPIIsNotEnabled() {
+	ctx := context.Background()
+	handler := New(Config{
+		Attestor:          FakeAttestor(workloadSelectors),
+		Manager:           s.manager,
+		DefaultSVIDName:   "default",
+		DefaultBundleName: "ROOTCA",
+		// API is not enabled
+		Enabled: false,
+	})
+	resp, err := handler.FetchSecrets(ctx, &api_v2.DiscoveryRequest{})
+	s.Require().Nil(resp)
+	s.RequireGRPCStatus(err, codes.Unavailable, deprecatedAPIErrorMsg)
+
+	err = handler.StreamSecrets(nil)
+	s.RequireGRPCStatus(err, codes.Unavailable, deprecatedAPIErrorMsg)
+
+	err = handler.DeltaSecrets(nil)
+	s.RequireGRPCStatus(err, codes.Unavailable, deprecatedAPIErrorMsg)
 }
 
 func (s *HandlerSuite) TestStreamSecretsStreamTrustDomainBundleOnly() {
@@ -500,7 +523,7 @@ func (s *HandlerSuite) setWorkloadUpdate(workloadCert *x509.Certificate) {
 				},
 			},
 			Bundle: tdBundle,
-			FederatedBundles: map[spiffeid.TrustDomain]*bundleutil.Bundle{
+			FederatedBundles: map[spiffeid.TrustDomain]*spiffebundle.Bundle{
 				spiffeid.RequireTrustDomainFromString("otherdomain.test"): fedBundle,
 			},
 		}
